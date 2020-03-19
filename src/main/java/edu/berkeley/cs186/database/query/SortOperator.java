@@ -8,6 +8,7 @@ import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.table.Schema;
 import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.memory.Page;
+import edu.berkeley.cs186.database.table.Table;
 
 import java.util.*;
 
@@ -71,10 +72,32 @@ public class SortOperator {
      * size of the buffer, but it is done this way for ease.
      */
     public Run sortRun(Run run) {
-        // TODO(proj3_part1): implement
+        if (!run.iterator().hasNext()){
+            return null;
+        }
+        List<Record> recs = new ArrayList<>();
 
-        return null;
+        for (Record r : run) {
+            recs.add(r);
+        }
+
+        recs.sort(this.comparator);
+        Run sortedRun = createRun();
+        sortedRun.addRecords(recs);
+
+        return sortedRun;
     }
+
+//    private boolean checkContinue(List<Run> runs) {
+//        boolean cont = false;
+//
+//        for (Run r : runs) {
+//            if (r.iterator().hasNext()) {
+//                cont = true;
+//            }
+//        }
+//        return cont;
+//    }
 
     /**
      * Given a list of sorted runs, returns a NEW run that is the result
@@ -85,9 +108,34 @@ public class SortOperator {
      * sorting on currently unmerged from run i.
      */
     public Run mergeSortedRuns(List<Run> runs) {
-        // TODO(proj3_part1): implement
+        if (runs.isEmpty()) {
+            return null;
+        }
 
-        return null;
+        List<Iterator<Record>> iters = new ArrayList<>();
+        PriorityQueue<Pair<Record, Integer>> pq = new PriorityQueue<>(new RecordPairComparator());
+        for (int i=0; i < runs.size(); i++) {
+            Run r = runs.get(i);
+            Iterator<Record> rIter = r.iterator();
+            iters.add(rIter);
+            if (rIter.hasNext()) {
+                pq.add(new Pair<>(rIter.next(), i));
+            }
+        }
+
+        Run mergedRun = createRun();
+
+        while (!pq.isEmpty()) {
+            Pair<Record, Integer> tempPair = pq.poll();
+            mergedRun.addRecord(tempPair.getFirst().getValues());
+
+            Iterator<Record> nextRunIter = iters.get(tempPair.getSecond());
+            if (nextRunIter.hasNext()) {
+                pq.add(new Pair<>(nextRunIter.next(), tempPair.getSecond()));
+            }
+//            cont = checkContinue(runs);
+        }
+        return mergedRun;
     }
 
     /**
@@ -98,9 +146,24 @@ public class SortOperator {
      * perfect multiple.
      */
     public List<Run> mergePass(List<Run> runs) {
-        // TODO(proj3_part1): implement
+        if (runs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Run> mergedRuns = new ArrayList<>();
+        int bufferSize = this.numBuffers - 1;
 
-        return Collections.emptyList();
+        while (!runs.isEmpty()) {
+            List<Run> runsForMerge = new ArrayList<>();
+            for (int i=0; i<bufferSize; i++) {
+                if (!runs.isEmpty()) {
+                    Run tempR = runs.remove(0);
+                    runsForMerge.add(tempR);
+                }
+            }
+            Run mergedR = mergeSortedRuns(runsForMerge);
+            mergedRuns.add(mergedR);
+        }
+        return mergedRuns;
     }
 
     /**
@@ -109,9 +172,23 @@ public class SortOperator {
      * Returns the name of the table that backs the final run.
      */
     public String sort() {
-        // TODO(proj3_part1): implement
+        Iterator<Page> pageIter = this.transaction.getPageIterator(this.tableName);
+        List<Run> allRuns = new ArrayList<>();
 
-        return this.tableName; // TODO(proj3_part1): replace this!
+        while (pageIter.hasNext()) {
+            BacktrackingIterator<Record> pageRecordIter =
+                    this.transaction.getBlockIterator(this.tableName, pageIter, this.numBuffers);
+            Run tempRun = createRunFromIterator(pageRecordIter);
+            Run sortedTempRun = sortRun(tempRun);
+            allRuns.add(sortedTempRun);
+        }
+
+        while (allRuns.size() != 1) {
+            allRuns = mergePass(allRuns);
+        }
+        Run finalRun = allRuns.remove(0);
+
+        return finalRun.tableName();
     }
 
     public Iterator<Record> iterator() {
