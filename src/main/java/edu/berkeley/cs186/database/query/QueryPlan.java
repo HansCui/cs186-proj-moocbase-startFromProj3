@@ -341,6 +341,27 @@ public class QueryPlan {
         // 3. Push down SELECT predicates that apply to this table and that were not
         // used for an index scan
 
+        int minCost;
+        int indexScaned = -999;
+
+        minOp = new SequentialScanOperator(this.transaction, table);
+        minCost = minOp.estimateIOCost();
+
+        List<Integer> allEligIndexCol = getEligibleIndexColumns(table);
+        for (Integer index : allEligIndexCol) {
+            QueryOperator tempOp = new IndexScanOperator(this.transaction, table, this.selectColumnNames.get(index),
+                    this.selectOperators.get(index), this.selectDataBoxes.get(index));
+            int tempCost = tempOp.estimateIOCost();
+            if (tempCost < minCost) {
+                indexScaned = index;
+                minOp = tempOp;
+                minCost = tempCost;
+            }
+        }
+
+        // Push down predicates
+        minOp = addEligibleSelections(minOp, indexScaned);
+
         return minOp;
     }
 

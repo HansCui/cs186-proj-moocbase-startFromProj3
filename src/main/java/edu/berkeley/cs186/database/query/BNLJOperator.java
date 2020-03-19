@@ -88,7 +88,18 @@ class BNLJOperator extends JoinOperator {
          * and leftRecord should be set to null.
          */
         private void fetchNextLeftBlock() {
-            // TODO(proj3_part1): implement
+            if (!leftIterator.hasNext()) {
+                throw new NoSuchElementException("BNLJ Left All Done!");
+            }
+
+            int chunkSize = numBuffers - 2;
+            List<Page> blocks = new ArrayList<>();
+
+            leftRecordIterator = BNLJOperator.this.getBlockIterator(this.getLeftTableName(), leftIterator, chunkSize);
+            if (leftRecordIterator.hasNext()) {
+                leftRecordIterator.markNext();
+                leftRecord = leftRecordIterator.next();
+            }
         }
 
         /**
@@ -100,7 +111,31 @@ class BNLJOperator extends JoinOperator {
          * should be set to null.
          */
         private void fetchNextRightPage() {
-            // TODO(proj3_part1): implement
+            if (!rightIterator.hasNext()) {
+                throw new NoSuchElementException("BNLJ Right All Done!");
+            }
+
+            int chunkSize = 1;
+
+            rightRecordIterator = BNLJOperator.this.getBlockIterator(this.getRightTableName(), rightIterator, chunkSize);
+            rightRecordIterator.markNext();
+        }
+
+        private void resetRight() {
+            this.rightIterator.reset();
+            assert(rightIterator.hasNext());
+            fetchNextRightPage();
+        }
+
+        private void resetLeftBlock() {
+            this.leftRecordIterator.reset();
+            assert(leftRecordIterator.hasNext());
+            this.leftRecord = this.leftRecordIterator.next();
+        }
+
+        private void resetRightPage() {
+            this.rightRecordIterator.reset();
+            assert(rightRecordIterator.hasNext());
         }
 
         /**
@@ -110,7 +145,35 @@ class BNLJOperator extends JoinOperator {
          * @throws NoSuchElementException if there are no more Records to yield
          */
         private void fetchNextRecord() {
-            // TODO(proj3_part1): implement
+            if (this.leftRecord == null) {
+                throw new NoSuchElementException("BNLJ No new record to fetch");
+            }
+
+            this.nextRecord = null;
+            do {
+                if (this.leftRecord != null) { // See if the end of the block.
+                    if (rightRecordIterator.hasNext()) { // See if the end of the page.
+                        Record rightRec = rightRecordIterator.next();
+                        DataBox leftJoinValue = this.leftRecord.getValues().get(BNLJOperator.this.getLeftColumnIndex());
+                        DataBox rightJoinValue = rightRec.getValues().get(BNLJOperator.this.getLeftColumnIndex());
+                        if (leftJoinValue.equals(rightJoinValue)) {
+                            this.nextRecord = joinRecords(this.leftRecord, rightRec);
+                        }
+                    } else { // If end of page, advance left record.
+                        this.leftRecord = leftRecordIterator.hasNext() ? leftRecordIterator.next() : null;
+                        resetRightPage();
+                    }
+
+                } else { // It's end of the block
+                    if (rightIterator.hasNext()) { // See if the end of all right pages, if not advance to the next page.
+                        fetchNextRightPage();
+                        resetLeftBlock();
+                    } else { // No more next page from right, advance to the next block.
+                        fetchNextLeftBlock();
+                        resetRight();
+                    }
+                }
+            } while(!hasNext());
         }
 
         /**
