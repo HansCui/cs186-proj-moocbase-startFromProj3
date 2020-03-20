@@ -226,7 +226,6 @@ public class QueryPlan {
      * @return an iterator of records that is the result of this query
      */
     public Iterator<Record> execute() {
-        // TODO(proj3_part2): implement
 
         // Pass 1: Iterate through all single tables. For each single table, find
         // the lowest cost QueryOperator to access that table. Construct a mapping
@@ -240,7 +239,6 @@ public class QueryPlan {
         // Get the lowest cost operator from the last pass, add GROUP BY and Project,
         // and return an iterator on the final operator
 
-//        return executeNaive();
         Map<Set, QueryOperator> p1Map = new HashMap<>();
         // put the first table to p1Map.
         Set<Object> firstSet = new HashSet<>();
