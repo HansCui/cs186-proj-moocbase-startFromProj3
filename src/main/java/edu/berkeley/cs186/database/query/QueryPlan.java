@@ -236,10 +236,34 @@ public class QueryPlan {
         // lowest cost joins with each single table. Repeat until all tables have
         // been joined.
 
-        // Get the lowest cost operator from the last pass, add GROUP BY and SELECT
-        // operators, and return an iterator on the final operator
+        //(Next line edited by Hans, "select operators"->"Project".)
+        // Get the lowest cost operator from the last pass, add GROUP BY and Project,
+        // and return an iterator on the final operator
 
-        return this.executeNaive(); // TODO(proj3_part2): Replace this!!! Allows you to test intermediate functionality
+//        return executeNaive();
+        Map<Set, QueryOperator> p1Map = new HashMap<>();
+        // put the first table to p1Map.
+        Set<Object> firstSet = new HashSet<>();
+        firstSet.add(this.startTableName);
+        p1Map.put(firstSet, minCostSingleAccess(this.startTableName));
+
+        // put the rest of the tables to p1Map.
+        for (String t : this.joinTableNames) {
+            Set<Object> someSet = new HashSet<>();
+            someSet.add(t);
+            p1Map.put(someSet, minCostSingleAccess(t));
+        }
+
+        Map<Set, QueryOperator> execMap = p1Map;
+        while (execMap.size() > 1) {
+            execMap = minCostJoins(execMap, p1Map);
+        }
+        this.finalOperator = minCostOperator(execMap);
+
+        this.addGroupBy();
+        this.addProjects();
+
+        return this.finalOperator.execute();
     }
 
     /**
@@ -331,8 +355,6 @@ public class QueryPlan {
         // Find the cost of a sequential scan of the table
         // minOp = new SequentialScanOperator(this.transaction, table);
 
-        // TODO(proj3_part2): implement
-
         // 1. Find the cost of a sequential scan of the table
 
         // 2. For each eligible index column, find the cost of an index scan of the
@@ -408,8 +430,6 @@ public class QueryPlan {
                                          Map<Set, QueryOperator> pass1Map) {
         Map<Set, QueryOperator> map = new HashMap<>();
 
-        // TODO(proj3_part2): implement
-
         //We provide a basic description of the logic you have to implement
 
         //Input: prevMap (maps a set of tables to a query operator--the operator that joins the set)
@@ -433,6 +453,46 @@ public class QueryPlan {
          * --- Then given the operator, use minCostJoinType to calculate the cheapest join with that
          * and the previously joined tables.
          */
+
+
+        for (Set<Object> tables : prevMap.keySet()) {
+
+            for (int i=0; i < joinTableNames.size(); i++) {
+                QueryOperator tempOp;
+                String[] leftColNTabName = getJoinLeftColumnNameByIndex(i);
+                String[] rightColNTabName = getJoinRightColumnNameByIndex(i);
+                Set<Object> newTableSet = new HashSet<>();
+
+                if (tables.contains(leftColNTabName[0]) && !tables.contains(rightColNTabName[0])) {
+                    Set<Object> someSet = new HashSet<>();
+                    someSet.add(rightColNTabName[0]);
+                    tempOp = minCostJoinType(prevMap.get(tables),
+                            pass1Map.get(someSet), leftColNTabName[1], rightColNTabName[1]);
+                    newTableSet.addAll(tables);
+                    newTableSet.add(rightColNTabName[0]);
+
+                } else if (!tables.contains(leftColNTabName[0]) && tables.contains(rightColNTabName[0])) {
+                    Set<Object> someSet = new HashSet<>();
+                    someSet.add(leftColNTabName[0]);
+                    tempOp = minCostJoinType(pass1Map.get(someSet),
+                            prevMap.get(tables), leftColNTabName[1], rightColNTabName[1]);
+                    newTableSet.addAll(tables);
+                    newTableSet.add(leftColNTabName[0]);
+
+                } else {
+                    continue;
+                }
+                int tempCost = tempOp.getIOCost();
+                if (!map.keySet().contains(newTableSet)) {
+                    map.put(newTableSet, tempOp);
+                } else {
+                    int minCost = map.get(newTableSet).getIOCost();
+                    if (minCost > tempCost) {
+                        map.put(newTableSet, tempOp);
+                    }
+                }
+            }
+        }
 
         return map;
     }
