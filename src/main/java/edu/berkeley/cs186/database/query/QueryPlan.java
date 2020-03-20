@@ -367,13 +367,13 @@ public class QueryPlan {
         int indexScaned = -999;
 
         minOp = new SequentialScanOperator(this.transaction, table);
-        minCost = minOp.estimateIOCost();
+        minCost = minOp.getIOCost();
 
         List<Integer> allEligIndexCol = getEligibleIndexColumns(table);
         for (Integer index : allEligIndexCol) {
             QueryOperator tempOp = new IndexScanOperator(this.transaction, table, this.selectColumnNames.get(index),
                     this.selectOperators.get(index), this.selectDataBoxes.get(index));
-            int tempCost = tempOp.estimateIOCost();
+            int tempCost = tempOp.getIOCost();
             if (tempCost < minCost) {
                 indexScaned = index;
                 minOp = tempOp;
