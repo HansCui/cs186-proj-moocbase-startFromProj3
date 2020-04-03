@@ -257,7 +257,6 @@ public class LockManager {
     public void acquireAndRelease(TransactionContext transaction, ResourceName name,
                                   LockType lockType, List<ResourceName> releaseLocks)
     throws DuplicateLockRequestException, NoLockHeldException {
-        // TODO(proj4_part1): Possibly buggy
         // You may modify any part of this method. You are not required to keep all your
         // code within the given synchronized block -- in fact,
         // you will have to write some code outside the synchronized block to avoid locking up
@@ -300,11 +299,14 @@ public class LockManager {
                 re.addToQueue(tempLR, true);
                 shouldBlock = true;
             } else {
+                re.grantOrUpdateLock(newLock);
                 // release Locks after acquire
                 for (ResourceName rsN : releaseLocks) {
+                    if (newLock.name.equals(rsN)) {
+                        continue;
+                    }
                     this.release(transaction, rsN);
                 }
-                re.grantOrUpdateLock(newLock);
             }
         }
         if (shouldBlock) {
