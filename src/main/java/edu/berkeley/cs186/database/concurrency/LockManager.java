@@ -107,6 +107,7 @@ public class LockManager {
                         }
                         if (!containedLock) { // if the lock list does not contain an updatable old lock
                             locksToAddTemp.add(lock);
+                            containedLock = true;
                         }
                     }
                     transactionLocks.get(transNum).addAll(locksToAddTemp);
@@ -208,16 +209,16 @@ public class LockManager {
 
     // Extra Helper Funcs
 
-    private void checkDuplicateLockRequest(long transNum, Lock newLock) {
-        // check if there is a Duplicate Lock
-        if (this.transactionLocks.keySet().contains(transNum)) {
-            for (Lock l : this.transactionLocks.get(transNum)) {
-                if (l.equals(newLock)) {
-                    throw new DuplicateLockRequestException("Duplicate Lock Exists.");
-                }
-            }
-        }
-    }
+//    private void checkDuplicateLockRequest(long transNum, ResourceName name) {
+//        // check if there is a Duplicate Lock
+//        if (this.transactionLocks.containsKey(transNum)) {
+//            for (Lock l : this.transactionLocks.get(transNum)) {
+//                if (l.name.equals(name) && l.lockType != LockType.NL) {
+//                    throw new DuplicateLockRequestException("Duplicate Lock Exists.");
+//                }
+//            }
+//        }
+//    }
 
     // construct the releaseLock list from a list of resourceNames
     private List<Lock> resourceNamesToLocks(TransactionContext transaction, List<ResourceName> resourceNames) {
@@ -268,7 +269,9 @@ public class LockManager {
             Lock newLock = new Lock(name, lockType, transNum);
 
             // check if there is a Duplicate Lock
-            checkDuplicateLockRequest(transNum, newLock);
+            if (this.getLockType(transaction, name) != LockType.NL && !releaseLocks.contains(name)) {
+                throw new DuplicateLockRequestException("Lock on NAME is held by TRANSACTION and isn't being released");
+            }
 
             // check if there is a noLockHeld
             for (ResourceName rcN : releaseLocks) {
@@ -338,7 +341,9 @@ public class LockManager {
             Lock newLock = new Lock(name, lockType, transNum);
 
             // check if there is a Duplicate Lock
-            checkDuplicateLockRequest(transNum, newLock);
+            if (this.getLockType(transaction, name) != LockType.NL) {
+                throw new DuplicateLockRequestException("Lock on NAME is held by TRANSACTION.");
+            }
 
             // check if resourceEntry contains the resourceName
             if (!this.resourceEntries.keySet().contains(name)) {
@@ -433,7 +438,9 @@ public class LockManager {
             Lock oldLock = null;
 
             // check if there is a Duplicate Lock
-            checkDuplicateLockRequest(transNum, newLock);
+            if (this.getLockType(transaction, name) == newLockType) {
+                throw new DuplicateLockRequestException("TRANSACTION already has a NEWLOCKTYPE lock on NAME.");
+            }
 
             // check if there is a NoLockHeld
             boolean noLockHeld = true;
@@ -476,12 +483,7 @@ public class LockManager {
      */
     public synchronized LockType getLockType(TransactionContext transaction, ResourceName name) {
         long transNum = transaction.getTransNum();
-//        for (Lock l : transactionLocks.get(transNum)) {
-//            if (l.name == name) {
-//                return l.lockType;
-//            }
-//        }
-//        return LockType.NL;
+
         ResourceEntry tempRE = this.resourceEntries.get(name);
         if (tempRE == null) {
             return LockType.NL;

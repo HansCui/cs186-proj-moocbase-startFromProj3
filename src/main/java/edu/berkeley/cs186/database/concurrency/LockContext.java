@@ -1,5 +1,6 @@
 package edu.berkeley.cs186.database.concurrency;
 // If you see this line, you have successfully pulled the latest changes from the skeleton for proj4!
+import edu.berkeley.cs186.database.Transaction;
 import edu.berkeley.cs186.database.TransactionContext;
 import edu.berkeley.cs186.database.common.Pair;
 
@@ -82,6 +83,66 @@ public class LockContext {
         return name;
     }
 
+    /* ---------------------------------Start Helper functions-------------------------------------- */
+
+    // check if newLockType can be the parent of its children
+    private void checkLockTypeCanBeParent(LockType newParentLockType, TransactionContext transaction) {
+        List<Lock> locksCurrHoldByTran = this.lockman.getLocks(transaction);
+        for (Lock l : locksCurrHoldByTran) {
+            LockContext potentialChildContext = fromResourceName(this.lockman, l.name);
+            if (this.isParentOf(potentialChildContext)) { // if potentialChildContext is a children of the current context
+                // if after changing the lockType, newLockType cannot be parent
+                if (!LockType.canBeParentLock(newParentLockType, l.lockType)) {
+                    throw new InvalidLockException("Lock can't be changed due to multigranularity locking constraint.");
+                }
+            }
+        }
+    }
+
+    // check UnsupportedOperation
+    private void checkUnsupportedOperation() {
+        if (this.readonly) {
+            throw new UnsupportedOperationException("Context is readonly.");
+        }
+    }
+
+    // update parent's numChildLock if it has one
+    private void updateParentNumChildLock(TransactionContext transaction, boolean shouldAdd) {
+        if (this.parent != null) {
+            try {
+                int currLockNum = this.parent.numChildLocks.get(transaction.getTransNum());
+                if (shouldAdd) {
+                    this.parent.numChildLocks.put(transaction.getTransNum(), currLockNum + 1);
+                } else {
+                    this.parent.numChildLocks.put(transaction.getTransNum(), currLockNum - 1);
+                }
+            } catch (NullPointerException ne) {
+                this.parent.numChildLocks.put(transaction.getTransNum(), 1);
+            }
+        }
+    }
+
+    private void releaseAllDescendantSIsLocks(TransactionContext transaction) {
+        List<ResourceName> sisRN = sisDescendants(transaction);
+        while (sisRN.size() != 0) {
+            for (ResourceName trn : sisRN) {
+                this.lockman.release(transaction, trn);
+                fromResourceName(this.lockman, trn).updateParentNumChildLock(transaction, false);
+            }
+            sisRN = sisDescendants(transaction);
+        }
+    }
+
+    private boolean isParentOf(LockContext potentialChildContext) {
+        if (potentialChildContext.name.isDescendantOf(this.name)) {
+            return potentialChildContext.parent.name.equals(this.name);
+        } else {
+            return false;
+        }
+    }
+
+    /* ---------------------------------End Helper functions--------------------------------------- */
+
     /**
      * Acquire a LOCKTYPE lock, for transaction TRANSACTION.
      *
@@ -95,6 +156,10 @@ public class LockContext {
     public void acquire(TransactionContext transaction, LockType lockType)
     throws InvalidLockException, DuplicateLockRequestException {
         // TODO(proj4_part2): implemented
+
+        // check for UnsupportedOperation
+        this.checkUnsupportedOperation();
+
         // check for invalid
         if (this.parent != null) {
             LockType parentLockType = this.parent.lockman.getLockType(transaction, this.parent.name);
@@ -105,16 +170,12 @@ public class LockContext {
         if (this.hasSIXAncestor(transaction) && (lockType == LockType.S || lockType == LockType.IS)) {
             throw new InvalidLockException("SIX redundant with LockType S or IS.");
         }
-        // check for duplicate
-        if (this.lockman.getLockType(transaction, this.name) != LockType.NL) {
-            throw new DuplicateLockRequestException("Lock already exists.");
-        }
-        // check for UnsupportedOperation
-        if (this.readonly) {
-            throw new UnsupportedOperationException("Context is readonly.");
-        }
 
+        // do acquire
         this.lockman.acquire(transaction, this.name, lockType);
+
+        // update parent's numChildLock
+        updateParentNumChildLock(transaction, true);
     }
 
     /**
@@ -130,23 +191,19 @@ public class LockContext {
      */
     public void release(TransactionContext transaction)
     throws NoLockHeldException, InvalidLockException {
-        // TODO(proj4_part2): implementing
-        // check for InvalidLock
-        List<Lock> locksCurrHoldByTran = this.lockman.getLocks(transaction);
-        for (Lock l : locksCurrHoldByTran) {
-            if (l.name.isDescendantOf(this.name)) { // if lock's resource l.name is a children of the current resource
-                LockContext tempContext = fromResourceName(this.lockman, l.name);
-                if (!LockType.canBeParentLock(LockType.NL, l.lockType)) {
-                    throw new InvalidLockException("Lock can't be release due to multigranularity locking constraint.");
-                }
-            }
-        }
-        // check for UnsupportedOperation
-        if (this.readonly) {
-            throw new UnsupportedOperationException("Context is readonly.");
-        }
+        // TODO(proj4_part2): implemented
 
+        // check for UnsupportedOperation
+        this.checkUnsupportedOperation();
+
+        // check for InvalidLock
+        this.checkLockTypeCanBeParent(LockType.NL, transaction);
+
+        //do release
         this.lockman.release(transaction, this.name);
+
+        // update parent's numChildLock
+        updateParentNumChildLock(transaction, false);
     }
 
     /**
@@ -168,9 +225,32 @@ public class LockContext {
      */
     public void promote(TransactionContext transaction, LockType newLockType)
     throws DuplicateLockRequestException, NoLockHeldException, InvalidLockException {
-        // TODO(proj4_part2): implement
+        // TODO(proj4_part2): implemented
+        LockType oldLockType = this.lockman.getLockType(transaction, this.name);
+        boolean sisixToSix = newLockType == LockType.SIX &&
+                (oldLockType == LockType.IS || oldLockType == LockType.IX || oldLockType == LockType.S);
 
-        return;
+        // check UnsupportedOperation
+        this.checkUnsupportedOperation();
+
+        // check InvalidLock
+        // You should disallow promotion to a SIX lock if an ancestor has SIX, because this would be redundant.
+        if (this.hasSIXAncestor(transaction)) {
+            if (newLockType == LockType.SIX) {
+                throw new InvalidLockException("Ancestor contains a SIX lock, should not promote to SIX lock.");
+            }
+        }
+        if (!(sisixToSix)) {
+            this.checkLockTypeCanBeParent(newLockType, transaction); // check if newLockType can be the parent
+        }
+
+        // do promote
+        this.lockman.promote(transaction, this.name, newLockType);
+
+        // For promotion to SIX from IS/IX/S, simultaneously release all S, IS locks on descendants.
+        if (sisixToSix) {
+            this.releaseAllDescendantSIsLocks(transaction);
+        }
     }
 
     /**
@@ -195,7 +275,17 @@ public class LockContext {
      * @throws UnsupportedOperationException if context is readonly
      */
     public void escalate(TransactionContext transaction) throws NoLockHeldException {
-        // TODO(proj4_part2): implement
+        // TODO(proj4_part2): implementing
+
+        // check UnsupportedOperation
+        this.checkUnsupportedOperation();
+
+        // check if TRANSACTION has no lock at this level
+        if (this.lockman.getLockType(transaction, name) == LockType.NL) {
+            throw new NoLockHeldException("TRANSACTION has no lock at this level.");
+        }
+
+
 
         return;
     }
@@ -220,12 +310,17 @@ public class LockContext {
      * @return true if holds a SIX at an ancestor, false if not
      */
     private boolean hasSIXAncestor(TransactionContext transaction) {
-        // TODO(proj4_part2): implementing
-        if (this.lockman.getLockType(transaction, name) == LockType.SIX) {
+        // TODO(proj4_part2): implemented
+
+        return this.hasSIXAncestorHelper(transaction, 0);
+    }
+
+    private boolean hasSIXAncestorHelper(TransactionContext transaction, int counter) {
+        if (this.lockman.getLockType(transaction, name) == LockType.SIX && counter != 0) {
             return true;
         }
         if (this.parent != null) {
-            return this.parent.hasSIXAncestor(transaction);
+            return this.parent.hasSIXAncestorHelper(transaction, counter+1);
         } else {
             return false;
         }
@@ -238,9 +333,28 @@ public class LockContext {
      * @return a list of ResourceNames of descendants which the transaction holds a S or IS lock.
      */
     private List<ResourceName> sisDescendants(TransactionContext transaction) {
-        // TODO(proj4_part2): implement
-        return new ArrayList<>();
+        // TODO(proj4_part2): implemented
+        if (this.lockman.getLockType(transaction, this.name) == LockType.NL) {
+            return new ArrayList<>();
+        }
 
+        List<Lock> locksCurrHoldByTran = this.lockman.getLocks(transaction);
+        for (Lock l : locksCurrHoldByTran) {
+            LockContext potentialChildContext = fromResourceName(this.lockman, l.name);
+            if (this.isParentOf(potentialChildContext)) { // if potentialChildContext is a children of the current context
+                // get all children's resourceName that contains S/IS lock
+                List<ResourceName> childrenResNames = potentialChildContext.sisDescendants(transaction);
+                // check if current resource contains a S/IS lock
+                if (this.lockman.getLockType(transaction, this.name) == LockType.S
+                        || this.lockman.getLockType(transaction, this.name) == LockType.IS) {
+                    if (!childrenResNames.contains(this.name)) { // check if the resource name already added.
+                        childrenResNames.add(this.name);
+                    }
+                }
+                return childrenResNames;
+            }
+        }
+        return new ArrayList<>();
     }
 
     /**
@@ -250,7 +364,7 @@ public class LockContext {
         if (transaction == null) {
             return LockType.NL;
         }
-        // TODO(proj4_part2): implementing
+        // TODO(proj4_part2): implemented
         return this.lockman.getLockType(transaction, this.name);
     }
 
