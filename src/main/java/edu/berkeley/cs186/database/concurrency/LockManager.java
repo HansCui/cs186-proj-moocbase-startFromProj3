@@ -482,7 +482,13 @@ public class LockManager {
 //            }
 //        }
 //        return LockType.NL;
-        return this.resourceEntries.get(name).getTransactionLockType(transNum);
+        ResourceEntry tempRE = this.resourceEntries.get(name);
+        if (tempRE == null) {
+            return LockType.NL;
+        }
+        return tempRE.getTransactionLockType(transNum);
+
+//        return this.resourceEntries.get(name).getTransactionLockType(transNum);
 
     }
 

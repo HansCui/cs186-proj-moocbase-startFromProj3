@@ -94,9 +94,27 @@ public class LockContext {
      */
     public void acquire(TransactionContext transaction, LockType lockType)
     throws InvalidLockException, DuplicateLockRequestException {
-        // TODO(proj4_part2): implement
+        // TODO(proj4_part2): implemented
+        // check for invalid
+        if (this.parent != null) {
+            LockType parentLockType = this.parent.lockman.getLockType(transaction, this.parent.name);
+            if (!LockType.canBeParentLock(parentLockType, lockType)) {
+                throw new InvalidLockException("Cannot be children.");
+            }
+        }
+        if (this.hasSIXAncestor(transaction) && (lockType == LockType.S || lockType == LockType.IS)) {
+            throw new InvalidLockException("SIX redundant with LockType S or IS.");
+        }
+        // check for duplicate
+        if (this.lockman.getLockType(transaction, this.name) != LockType.NL) {
+            throw new DuplicateLockRequestException("Lock already exists.");
+        }
+        // check for UnsupportedOperation
+        if (this.readonly) {
+            throw new UnsupportedOperationException("Context is readonly.");
+        }
 
-        return;
+        this.lockman.acquire(transaction, this.name, lockType);
     }
 
     /**
@@ -112,9 +130,23 @@ public class LockContext {
      */
     public void release(TransactionContext transaction)
     throws NoLockHeldException, InvalidLockException {
-        // TODO(proj4_part2): implement
+        // TODO(proj4_part2): implementing
+        // check for InvalidLock
+        List<Lock> locksCurrHoldByTran = this.lockman.getLocks(transaction);
+        for (Lock l : locksCurrHoldByTran) {
+            if (l.name.isDescendantOf(this.name)) { // if lock's resource l.name is a children of the current resource
+                LockContext tempContext = fromResourceName(this.lockman, l.name);
+                if (!LockType.canBeParentLock(LockType.NL, l.lockType)) {
+                    throw new InvalidLockException("Lock can't be release due to multigranularity locking constraint.");
+                }
+            }
+        }
+        // check for UnsupportedOperation
+        if (this.readonly) {
+            throw new UnsupportedOperationException("Context is readonly.");
+        }
 
-        return;
+        this.lockman.release(transaction, this.name);
     }
 
     /**
@@ -177,8 +209,9 @@ public class LockContext {
         if (transaction == null) {
             return LockType.NL;
         }
-        // TODO(proj4_part2): implement
-        return LockType.NL;
+        // TODO(proj4_part2): implementing
+
+        return this.lockman.getLockType(transaction, this.name);
     }
 
     /**
@@ -187,8 +220,15 @@ public class LockContext {
      * @return true if holds a SIX at an ancestor, false if not
      */
     private boolean hasSIXAncestor(TransactionContext transaction) {
-        // TODO(proj4_part2): implement
-        return false;
+        // TODO(proj4_part2): implementing
+        if (this.lockman.getLockType(transaction, name) == LockType.SIX) {
+            return true;
+        }
+        if (this.parent != null) {
+            return this.parent.hasSIXAncestor(transaction);
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -200,6 +240,7 @@ public class LockContext {
     private List<ResourceName> sisDescendants(TransactionContext transaction) {
         // TODO(proj4_part2): implement
         return new ArrayList<>();
+
     }
 
     /**
@@ -209,8 +250,8 @@ public class LockContext {
         if (transaction == null) {
             return LockType.NL;
         }
-        // TODO(proj4_part2): implement
-        return LockType.NL;
+        // TODO(proj4_part2): implementing
+        return this.lockman.getLockType(transaction, this.name);
     }
 
     /**
