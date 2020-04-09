@@ -122,24 +122,78 @@ public class LockContext {
         }
     }
 
-    private void releaseAllDescendantSIsLocks(TransactionContext transaction) {
-        List<ResourceName> sisRN = sisDescendants(transaction);
-        while (sisRN.size() != 0) {
-            for (ResourceName trn : sisRN) {
-                this.lockman.release(transaction, trn);
-                fromResourceName(this.lockman, trn).updateParentNumChildLock(transaction, false);
-            }
-            sisRN = sisDescendants(transaction);
+//    private void releaseAllDescendantSIsLocks(TransactionContext transaction, List<ResourceName> sisRN) {
+//        List<ResourceName> sisRNCopy = new ArrayList<>(sisRN);
+//        while (sisRNCopy.size() != 0) {
+//            for (ResourceName trn : sisRNCopy) {
+//                this.lockman.release(transaction, trn);
+//                fromResourceName(this.lockman, trn).updateParentNumChildLock(transaction, false);
+//            }
+//            sisRNCopy = sisDescendants(transaction);
+//        }
+//    }
+
+//    private void releaseAllDescendantLocks(TransactionContext transaction, List<ResourceName> LRN) {
+//        List<ResourceName> LRNCopy = new ArrayList<>(LRN);
+//        while (LRNCopy.size() != 0) {
+//            for (ResourceName trn : LRNCopy) {
+//                this.lockman.release(transaction, trn);
+//                fromResourceName(this.lockman, trn).updateParentNumChildLock(transaction, false);
+//            }
+//            LRNCopy = this.locksDescendants(transaction);
+//        }
+//    }
+
+    // for descendant being released specifically
+    private void updateAllDescendantParentNumChildLock(TransactionContext transaction, List<ResourceName> LRN) {
+        List<ResourceName> LRNCopy = new ArrayList<>(LRN);
+        for (ResourceName trn : LRNCopy) {
+            fromResourceName(this.lockman, trn).updateParentNumChildLock(transaction, false);
         }
     }
 
     private boolean isParentOf(LockContext potentialChildContext) {
         if (potentialChildContext.name.isDescendantOf(this.name)) {
+            LockContext childParent = potentialChildContext.parent;
+            if (childParent == null) {
+                return false;
+            }
             return potentialChildContext.parent.name.equals(this.name);
         } else {
             return false;
         }
     }
+
+    // get escalateLockType
+    private LockType getEscalateLockType(TransactionContext transaction) {
+        LockType currLT = this.getExplicitLockType(transaction);
+
+        switch (currLT) {
+            case S:
+            case IS:
+                return LockType.S;
+            case X:
+            case IX:
+            case SIX:
+                return LockType.X;
+        }
+        return LockType.S;
+    }
+
+//    // should a escalateLockType be upgraded
+//    private LockType shouldUpgradeEscLockType(LockType currLockType, LockType encounterLockType, boolean isRoot) {
+//        if (isRoot) {
+//            switch (encounterLockType) {
+//                case S:
+//                case IS:
+//                    return LockType.S;
+//                case X:
+//                case IX:
+//                case SIX:
+//                    return LockType.X;
+//            }
+//        }
+//    }
 
     /* ---------------------------------End Helper functions--------------------------------------- */
 
@@ -226,7 +280,7 @@ public class LockContext {
     public void promote(TransactionContext transaction, LockType newLockType)
     throws DuplicateLockRequestException, NoLockHeldException, InvalidLockException {
         // TODO(proj4_part2): implemented
-        LockType oldLockType = this.lockman.getLockType(transaction, this.name);
+        LockType oldLockType = this.getExplicitLockType(transaction);
         boolean sisixToSix = newLockType == LockType.SIX &&
                 (oldLockType == LockType.IS || oldLockType == LockType.IX || oldLockType == LockType.S);
 
@@ -245,11 +299,14 @@ public class LockContext {
         }
 
         // do promote
-        this.lockman.promote(transaction, this.name, newLockType);
-
-        // For promotion to SIX from IS/IX/S, simultaneously release all S, IS locks on descendants.
-        if (sisixToSix) {
-            this.releaseAllDescendantSIsLocks(transaction);
+        if (!(sisixToSix)) {
+            this.lockman.promote(transaction, this.name, newLockType);
+        } else { // For promotion to SIX from IS/IX/S, simultaneously release all S, IS locks on descendants.
+            // TODO: might have processQueue issue.
+            List<ResourceName> sisSN = this.sisDescendants(transaction);
+            this.updateAllDescendantParentNumChildLock(transaction, sisSN);
+            sisSN.add(this.name); // add the current resourceName to releaseList
+            this.lockman.acquireAndRelease(transaction, this.name, newLockType, sisSN);
         }
     }
 
@@ -275,19 +332,28 @@ public class LockContext {
      * @throws UnsupportedOperationException if context is readonly
      */
     public void escalate(TransactionContext transaction) throws NoLockHeldException {
-        // TODO(proj4_part2): implementing
+        // TODO(proj4_part2): implemented
 
         // check UnsupportedOperation
         this.checkUnsupportedOperation();
 
         // check if TRANSACTION has no lock at this level
-        if (this.lockman.getLockType(transaction, name) == LockType.NL) {
+        if (this.getExplicitLockType(transaction) == LockType.NL) {
             throw new NoLockHeldException("TRANSACTION has no lock at this level.");
         }
 
-
-
-        return;
+        // do escalate:
+        // update released descendants' parent's numChildNum
+        List<ResourceName> RSN = this.locksDescendants(transaction);
+        this.updateAllDescendantParentNumChildLock(transaction, RSN);
+        // get escalateLockType
+        LockType newEscalateLockType = this.getEscalateLockType(transaction);
+        if (newEscalateLockType == this.getExplicitLockType(transaction)) { // same type then do nothing;
+            return;
+        }
+        // acquire and release current level lock
+        RSN.add(this.name); // add the current resourceName to releaseList
+        this.lockman.acquireAndRelease(transaction, this.name, newEscalateLockType, RSN);
     }
 
     /**
@@ -300,8 +366,28 @@ public class LockContext {
             return LockType.NL;
         }
         // TODO(proj4_part2): implementing
-
-        return this.lockman.getLockType(transaction, this.name);
+//        return LockType.NL;
+        LockType currLockType = this.getExplicitLockType(transaction);
+        if (this.parent == null) {
+            switch (currLockType) {
+                case S:
+                case X:
+                    return currLockType;
+            }
+        } else {
+            switch (currLockType) {
+                case S:
+                case SIX:
+                    return LockType.S;
+                case X:
+                    return LockType.X;
+                case IS:
+                case IX:
+                case NL:
+                    return this.parent.getEffectiveLockType(transaction);
+            }
+        }
+        return LockType.NL;
     }
 
     /**
@@ -316,7 +402,7 @@ public class LockContext {
     }
 
     private boolean hasSIXAncestorHelper(TransactionContext transaction, int counter) {
-        if (this.lockman.getLockType(transaction, name) == LockType.SIX && counter != 0) {
+        if (this.getExplicitLockType(transaction) == LockType.SIX && counter != 0) {
             return true;
         }
         if (this.parent != null) {
@@ -334,7 +420,7 @@ public class LockContext {
      */
     private List<ResourceName> sisDescendants(TransactionContext transaction) {
         // TODO(proj4_part2): implemented
-        if (this.lockman.getLockType(transaction, this.name) == LockType.NL) {
+        if (this.getExplicitLockType(transaction) == LockType.NL) {
             return new ArrayList<>();
         }
 
@@ -345,8 +431,8 @@ public class LockContext {
                 // get all children's resourceName that contains S/IS lock
                 List<ResourceName> childrenResNames = potentialChildContext.sisDescendants(transaction);
                 // check if current resource contains a S/IS lock
-                if (this.lockman.getLockType(transaction, this.name) == LockType.S
-                        || this.lockman.getLockType(transaction, this.name) == LockType.IS) {
+                if (this.getExplicitLockType(transaction) == LockType.S
+                        || this.getExplicitLockType(transaction) == LockType.IS) {
                     if (!childrenResNames.contains(this.name)) { // check if the resource name already added.
                         childrenResNames.add(this.name);
                     }
@@ -355,6 +441,31 @@ public class LockContext {
             }
         }
         return new ArrayList<>();
+    }
+
+    // get a list of resourceName of descendants that hold locks
+    private List<ResourceName> locksDescendants(TransactionContext transaction) {
+        if (this.getExplicitLockType(transaction) == LockType.NL) {
+            return new ArrayList<>();
+        }
+
+        List<ResourceName> finalResNames = new ArrayList<>();
+        List<Lock> locksCurrHoldByTran = this.lockman.getLocks(transaction);
+        for (Lock l : locksCurrHoldByTran) {
+            LockContext potentialChildContext = fromResourceName(this.lockman, l.name);
+            if (this.isParentOf(potentialChildContext)) { // if potentialChildContext is a children of the current context
+                // get all children's resourceName that contains a lock
+                List<ResourceName> childrenResNames = potentialChildContext.locksDescendants(transaction);
+                // check if current resource contains a lock
+                if (this.getExplicitLockType(transaction) != LockType.NL) {
+                    if (!childrenResNames.contains(this.name)) { // check if the resource name already added.
+                        childrenResNames.add(potentialChildContext.name);
+                    }
+                }
+                finalResNames.addAll(childrenResNames);
+            }
+        }
+        return finalResNames;
     }
 
     /**

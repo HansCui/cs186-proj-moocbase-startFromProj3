@@ -105,10 +105,9 @@ public class LockManager {
                             containedLock = true;
                             l.lockType = lock.lockType;
                         }
-                        if (!containedLock) { // if the lock list does not contain an updatable old lock
-                            locksToAddTemp.add(lock);
-                            containedLock = true;
-                        }
+                    }
+                    if (!containedLock) { // if the lock list does not contain an updatable old lock
+                        locksToAddTemp.add(lock);
                     }
                     transactionLocks.get(transNum).addAll(locksToAddTemp);
                 }
@@ -303,7 +302,7 @@ public class LockManager {
                 shouldBlock = true;
             } else {
                 re.grantOrUpdateLock(newLock);
-                // release Locks after acquire
+                // release Locks after acquire except the lock that just acquired
                 for (ResourceName rsN : releaseLocks) {
                     if (newLock.name.equals(rsN)) {
                         continue;
