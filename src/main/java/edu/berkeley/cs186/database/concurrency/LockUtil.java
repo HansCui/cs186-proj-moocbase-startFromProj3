@@ -28,6 +28,10 @@ public class LockUtil {
 
         LockType currLockType = lockContext.getExplicitLockType(transaction);
         if(lockType == LockType.S) { // handle S lockType
+            if (lockContext.getEffectiveLockType(transaction) == LockType.S
+                    || lockContext.getEffectiveLockType(transaction) == LockType.X) {
+                return;
+            }
             switch (currLockType) {
                 case S:
                 case X:
@@ -47,6 +51,9 @@ public class LockUtil {
                     break;
             }
         } else if (lockType == LockType.X) { // handle X lockType
+            if (lockContext.getEffectiveLockType(transaction) == LockType.X) {
+                return;
+            }
             ensureAncestorFit(transaction, LockType.IX, lockContext.parentContext());
             switch (currLockType) {
                 case X: return;
@@ -62,7 +69,6 @@ public class LockUtil {
                     lockContext.escalate(transaction);
                     break;
                 case NL:
-                    ensureAncestorFit(transaction, LockType.IX, lockContext.parentContext());
                     lockContext.acquire(transaction, lockType);
                     break;
             }
@@ -70,9 +76,11 @@ public class LockUtil {
 
     }
 
-    // TODO(proj4_part2): add helper methods as you see fit
 
     private static void ensureAncestorFit(TransactionContext transaction, LockType newLockType, LockContext lockContext) {
+        if (lockContext == null) {
+            return;
+        }
         LockContext pCont = lockContext.parentContext();
         switch (newLockType) {
             case IS:
