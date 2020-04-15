@@ -99,6 +99,8 @@ public class LockUtil {
                 LockType currOldLock = lockContext.getExplicitLockType(transaction);
                 if (currOldLock == LockType.NL) {
                     lockContext.acquire(transaction, LockType.IX);
+                } else if (currOldLock == LockType.S) {
+                    lockContext.promote(transaction, LockType.SIX);
                 } else {
                     if (!LockType.substitutable(currOldLock, LockType.IX)) {
                         lockContext.promote(transaction, LockType.IX);

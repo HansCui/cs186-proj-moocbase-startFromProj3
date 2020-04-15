@@ -848,7 +848,8 @@ public class Database implements AutoCloseable {
 
         @Override
         public Iterator<Record> sortedScan(String tableName, String columnName) {
-            // TODO(proj4_part3): scan locking
+            // TODO(proj4_part3): scan locked
+            LockUtil.ensureSufficientLockHeld(getTableContext(tableName), LockType.S);
 
             Table tab = getTable(tableName);
             try {
@@ -867,7 +868,8 @@ public class Database implements AutoCloseable {
 
         @Override
         public Iterator<Record> sortedScanFrom(String tableName, String columnName, DataBox startValue) {
-            // TODO(proj4_part3): scan locking
+            // TODO(proj4_part3): scan locked
+            LockUtil.ensureSufficientLockHeld(getTableContext(tableName), LockType.S);
 
             Table tab = getTable(tableName);
             Pair<String, BPlusTree> index = resolveIndexFromName(tableName, columnName);
@@ -1054,7 +1056,7 @@ public class Database implements AutoCloseable {
 
         @Override
         public void close() {
-            // TODO(proj4_part3): release locks held by the transaction
+            // TODO(proj4_part3): released locks held by the transaction
             try {
                 List<Lock> allLocks = lockManager.getLocks(this);
                 for (int i=allLocks.size()-1; i>=0; i--) {
