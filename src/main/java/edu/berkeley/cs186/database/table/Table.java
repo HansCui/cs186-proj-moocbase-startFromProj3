@@ -121,7 +121,6 @@ public class Table implements BacktrackingIterable<Record> {
      */
     public Table(String name, Schema schema, HeapFile heapFile, LockContext lockContext) {
         // TODO(proj4_part3): table locked code
-//        lockContext.disableChildLocks();
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.X);
 
         this.name = name;
@@ -152,6 +151,8 @@ public class Table implements BacktrackingIterable<Record> {
         }
 
         this.lockContext = lockContext;
+        // enable auto escalate
+        this.enableAutoEscalate();
     }
 
     // Accessors /////////////////////////////////////////////////////////////////
@@ -443,7 +444,8 @@ public class Table implements BacktrackingIterable<Record> {
      * has at least 10 pages should escalate to a table-level lock before any locks are requested.
      */
     public void enableAutoEscalate() {
-        // TODO(proj4_part3): implement
+        // TODO(proj4_part3): implemented
+        this.lockContext.enableTableAutoEscalate();
     }
 
     /**
@@ -451,7 +453,8 @@ public class Table implements BacktrackingIterable<Record> {
      * an automatic escalation to a table-level lock.
      */
     public void disableAutoEscalate() {
-        // TODO(proj4_part3): implement
+        // TODO(proj4_part3): implemented
+        this.lockContext.disableTableAutoEscalate();
     }
 
     // Iterators /////////////////////////////////////////////////////////////////

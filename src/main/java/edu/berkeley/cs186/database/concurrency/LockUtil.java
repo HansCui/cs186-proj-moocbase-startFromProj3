@@ -19,11 +19,19 @@ public class LockUtil {
      * If the current transaction is null (i.e. there is no current transaction), this method should do nothing.
      */
     public static void ensureSufficientLockHeld(LockContext lockContext, LockType lockType) {
-        // TODO(proj4_part2): implementing
 
         TransactionContext transaction = TransactionContext.getTransaction(); // current transaction
         if (transaction == null || lockType == LockType.NL || lockContext.readonly) {
             return;
+        }
+
+        // check if auto escalating
+        LockContext shouldBeTable = lockContext.parentContext();
+        if (shouldBeTable != null) {
+            if (shouldBeTable.isTableContext() && shouldBeTable.isAutoEscalatingEnabled()
+                    && shouldBeTable.saturation(transaction) >= 0.2 && shouldBeTable.capacity() >= 10) {
+                shouldBeTable.escalate(transaction);
+            }
         }
 
         LockType currLockType = lockContext.getExplicitLockType(transaction);

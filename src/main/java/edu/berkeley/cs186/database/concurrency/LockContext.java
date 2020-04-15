@@ -41,6 +41,9 @@ public class LockContext {
     // Whether or not any new child LockContexts should be marked readonly.
     protected boolean childLocksDisabled;
 
+    // boolean indicated if auto escalating is enabled
+    private boolean autoEscalatingEnabled;
+
     public LockContext(LockManager lockman, LockContext parent, Pair<String, Long> name) {
         this(lockman, parent, name, false);
     }
@@ -59,6 +62,7 @@ public class LockContext {
         this.capacity = -1;
         this.children = new ConcurrentHashMap<>();
         this.childLocksDisabled = readonly;
+
     }
 
     /**
@@ -84,6 +88,26 @@ public class LockContext {
     }
 
     /* ---------------------------------Start Helper functions-------------------------------------- */
+
+    // check if this lockContext is a table context
+    public boolean isTableContext() {
+        if (this.parent != null) {
+            return this.parent.parentContext() == null;
+        }
+        return false;
+    }
+
+    public void enableTableAutoEscalate() {
+        this.autoEscalatingEnabled = true;
+    }
+
+    public void disableTableAutoEscalate() {
+        this.autoEscalatingEnabled = false;
+    }
+
+    public boolean isAutoEscalatingEnabled() {
+        return this.autoEscalatingEnabled;
+    }
 
     // check if newLockType can be the parent of its children
     private void checkLockTypeCanBeParent(LockType newParentLockType, TransactionContext transaction) {
@@ -453,14 +477,14 @@ public class LockContext {
             LockContext potentialChildContext = fromResourceName(this.lockman, l.name);
             if (this.isParentOf(potentialChildContext)) { // if potentialChildContext is a children of the current context
                 // get all children's resourceName that contains S/IS lock
-                List<ResourceName> childrenResNames = potentialChildContext.sisDescendants(transaction);
-                // check if current resource contains a S/IS lock
-                if (mythBool) {
-                    if (!childrenResNames.contains(this.name)) { // check if the resource name already added.
-                        childrenResNames.add(this.name);
-                    }
-                }
-                finalResNames.addAll(childrenResNames);
+                finalResNames.addAll(potentialChildContext.sisDescendants(transaction));
+            }
+        }
+
+        // check if current resource contains a S/IS lock
+        if (mythBool) {
+            if (!finalResNames.contains(this.name)) { // check if the resource name already added.
+                finalResNames.add(this.name);
             }
         }
         return finalResNames;
@@ -496,14 +520,14 @@ public class LockContext {
             LockContext potentialChildContext = fromResourceName(this.lockman, l.name);
             if (this.isParentOf(potentialChildContext)) { // if potentialChildContext is a children of the current context
                 // get all children's resourceName that contains a lock
-                List<ResourceName> childrenResNames = potentialChildContext.locksDescendants(transaction);
-                // check if current resource contains a lock
-                if (mythBool) {
-                    if (!childrenResNames.contains(this.name)) { // check if the resource name already added.
-                        childrenResNames.add(this.name);
-                    }
-                }
-                finalResNames.addAll(childrenResNames);
+                finalResNames.addAll(potentialChildContext.locksDescendants(transaction));
+            }
+        }
+
+        // check if current resource contains a lock
+        if (mythBool) {
+            if (!finalResNames.contains(this.name)) { // check if the resource name already added.
+                finalResNames.add(this.name);
             }
         }
         return finalResNames;
