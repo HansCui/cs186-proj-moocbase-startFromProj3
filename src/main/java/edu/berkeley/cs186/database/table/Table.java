@@ -120,7 +120,6 @@ public class Table implements BacktrackingIterable<Record> {
      * new table will be created if none exists on the heapfile.
      */
     public Table(String name, Schema schema, HeapFile heapFile, LockContext lockContext) {
-        // TODO(proj4_part3): table locked code
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.X);
 
         this.name = name;
@@ -317,7 +316,6 @@ public class Table implements BacktrackingIterable<Record> {
      * not correspond to an existing record in the table.
      */
     public synchronized Record updateRecord(List<DataBox> values, RecordId rid) {
-        // TODO(proj4_part3): modified for smarter locking
         LockUtil.ensureSufficientLockHeld(lockContext.childContext(rid.getPageNum()), LockType.X);
 
         validateRecordId(rid);
@@ -343,7 +341,6 @@ public class Table implements BacktrackingIterable<Record> {
      * if rid does not correspond to an existing record in the table.
      */
     public synchronized Record deleteRecord(RecordId rid) {
-        // TODO(proj4_part3): modified for smarter locking
         LockUtil.ensureSufficientLockHeld(lockContext.childContext(rid.getPageNum()), LockType.X);
 
         validateRecordId(rid);
@@ -444,7 +441,6 @@ public class Table implements BacktrackingIterable<Record> {
      * has at least 10 pages should escalate to a table-level lock before any locks are requested.
      */
     public void enableAutoEscalate() {
-        // TODO(proj4_part3): implemented
         this.lockContext.enableTableAutoEscalate();
     }
 
@@ -453,13 +449,11 @@ public class Table implements BacktrackingIterable<Record> {
      * an automatic escalation to a table-level lock.
      */
     public void disableAutoEscalate() {
-        // TODO(proj4_part3): implemented
         this.lockContext.disableTableAutoEscalate();
     }
 
     // Iterators /////////////////////////////////////////////////////////////////
     public BacktrackingIterator<RecordId> ridIterator() {
-        // TODO(proj4_part3): reduced locking overhead for table scans
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.S);
 
         BacktrackingIterator<Page> iter = heapFile.iterator();

@@ -92,7 +92,6 @@ public class PageDirectory implements HeapFile {
         this.lockContext = lockContext;
         this.firstHeader = new HeaderPage(pageNum, 0, true);
 
-        // TODO(proj4_part3): updated table capacity
         lockContext.capacity(getNumDataPages());
     }
 
@@ -123,7 +122,6 @@ public class PageDirectory implements HeapFile {
 
         Page page = this.firstHeader.loadPageWithSpace(requiredSpace);
 
-        // TODO(proj4_part3): modified for smarter locking
         LockUtil.ensureSufficientLockHeld(lockContext.childContext(page.getPageNum()), LockType.X);
 
         return new DataPage(pageDirectoryId, page);
@@ -362,7 +360,6 @@ public class PageDirectory implements HeapFile {
 
                     ++this.numDataPages;
 
-                    // TODO(proj4_part3): updated table capacity
                     lockContext.capacity(getNumDataPages());
 
                     return page;

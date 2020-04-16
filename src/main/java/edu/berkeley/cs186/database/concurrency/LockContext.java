@@ -324,7 +324,6 @@ public class LockContext {
         if (!(sisixToSix)) {
             this.lockman.promote(transaction, this.name, newLockType);
         } else { // For promotion to SIX from IS/IX/S, simultaneously release all S, IS locks on descendants.
-            // TODO: might have processQueue issue.
             List<ResourceName> sisSN = this.sisDescendants(transaction);
             this.updateAllDescendantParentNumChildLock(transaction, sisSN);
             if (!sisSN.contains(this.name)) {

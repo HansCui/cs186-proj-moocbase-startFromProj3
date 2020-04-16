@@ -117,4 +117,14 @@ public class LockUtil {
                 break;
         }
     }
+
+    // Only get the sufficient intent locks but not the actual lock on the current level.
+    public static void onlyEnsureSufficientLockHeldForX(LockContext lockContext) {
+        TransactionContext transaction = TransactionContext.getTransaction(); // current transaction
+        if (transaction == null || lockContext.readonly) {
+            return;
+        }
+
+        ensureAncestorFit(transaction, LockType.IX, lockContext.parentContext());
+    }
 }
