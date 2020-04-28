@@ -85,12 +85,14 @@ public class PageDirectory implements HeapFile {
      */
     public PageDirectory(BufferManager bufferManager, int partNum, long pageNum,
                          short emptyPageMetadataSize, LockContext lockContext) {
-        // TODO(proj4_part3): update table capacity
+
         this.bufferManager = bufferManager;
         this.partNum = partNum;
         this.emptyPageMetadataSize = emptyPageMetadataSize;
         this.lockContext = lockContext;
         this.firstHeader = new HeaderPage(pageNum, 0, true);
+
+        lockContext.capacity(getNumDataPages());
     }
 
     @Override
@@ -110,7 +112,6 @@ public class PageDirectory implements HeapFile {
 
     @Override
     public Page getPageWithSpace(short requiredSpace) {
-        // TODO(proj4_part3): modify for smarter locking
 
         if (requiredSpace <= 0) {
             throw new IllegalArgumentException("cannot request nonpositive amount of space");
@@ -120,6 +121,8 @@ public class PageDirectory implements HeapFile {
         }
 
         Page page = this.firstHeader.loadPageWithSpace(requiredSpace);
+
+        LockUtil.ensureSufficientLockHeld(lockContext.childContext(page.getPageNum()), LockType.X);
 
         return new DataPage(pageDirectoryId, page);
     }
@@ -319,7 +322,6 @@ public class PageDirectory implements HeapFile {
 
         // gets and loads a page with the required free space
         private Page loadPageWithSpace(short requiredSpace) {
-            // TODO(proj4_part3): update table capacity
 
             this.page.pin();
             try {
@@ -357,6 +359,8 @@ public class PageDirectory implements HeapFile {
                     page.getBuffer().putInt(pageDirectoryId).putInt(headerOffset).putShort(unusedSlot);
 
                     ++this.numDataPages;
+
+                    lockContext.capacity(getNumDataPages());
 
                     return page;
                 }

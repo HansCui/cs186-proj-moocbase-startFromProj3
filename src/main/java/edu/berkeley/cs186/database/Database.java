@@ -630,7 +630,8 @@ public class Database implements AutoCloseable {
         // will be blocked while we're inside a compute call.
         boolean mayNeedToCreate = !tableInfoLookup.containsKey(tableName);
         if (mayNeedToCreate) {
-            // TODO(proj4_part3): acquire all locks needed on database/information_schema.tables before compute()
+            LockUtil.onlyEnsureSufficientLockHeldForX(getTableInfoContext());
+
             tableInfoLookup.compute(tableName, (tableName_, recordId) -> {
                 if (recordId != null) { // record created between containsKey call and this
                     return recordId;
@@ -640,7 +641,9 @@ public class Database implements AutoCloseable {
             });
         }
 
-        // TODO(proj4_part3): acquire all locks needed on the row in information_schema.tables
+        LockUtil.ensureSufficientLockHeld(getTableInfoContext().
+                childContext(tableInfoLookup.get(tableName).getPageNum()), lockType);
+
     }
 
     private TableInfoRecord getTableMetadata(String tableName) {
@@ -658,7 +661,8 @@ public class Database implements AutoCloseable {
         // see getTableMetadata - same logic/structure, just with a different table
         boolean mayNeedToCreate = !indexInfoLookup.containsKey(indexName);
         if (mayNeedToCreate) {
-            // TODO(proj4_part3): acquire all locks needed on database/information_schema.indices before compute()
+            LockUtil.onlyEnsureSufficientLockHeldForX(getIndexInfoContext());
+
             indexInfoLookup.compute(indexName, (indexName_, recordId) -> {
                 if (recordId != null) { // record created between containsKey call and this
                     return recordId;
@@ -677,7 +681,7 @@ public class Database implements AutoCloseable {
             });
         }
 
-        // TODO(proj4_part3): acquire all locks needed on the row in information_schema.indices
+        LockUtil.ensureSufficientLockHeld(getIndexInfoContext().childContext(indexInfoLookup.get(indexName).getPageNum()), lockType);
     }
 
     private BPlusTreeMetadata getIndexMetadata(String tableName, String columnName) {
@@ -848,7 +852,7 @@ public class Database implements AutoCloseable {
 
         @Override
         public Iterator<Record> sortedScan(String tableName, String columnName) {
-            // TODO(proj4_part3): scan locking
+            LockUtil.ensureSufficientLockHeld(getTableContext(tableName), LockType.S);
 
             Table tab = getTable(tableName);
             try {
@@ -867,7 +871,7 @@ public class Database implements AutoCloseable {
 
         @Override
         public Iterator<Record> sortedScanFrom(String tableName, String columnName, DataBox startValue) {
-            // TODO(proj4_part3): scan locking
+            LockUtil.ensureSufficientLockHeld(getTableContext(tableName), LockType.S);
 
             Table tab = getTable(tableName);
             Pair<String, BPlusTree> index = resolveIndexFromName(tableName, columnName);
@@ -1054,8 +1058,20 @@ public class Database implements AutoCloseable {
 
         @Override
         public void close() {
-            // TODO(proj4_part3): release locks held by the transaction
-            return;
+            try {
+                List<Lock> allLocks = lockManager.getLocks(this);
+                for (int i=allLocks.size()-1; i>=0; i--) {
+                    Lock tmpLock = allLocks.get(i);
+                    LockContext.fromResourceName(lockManager, tmpLock.name).release(this);
+                }
+//                LockContext dbContext = lockManager.databaseContext();
+//                if (dbContext.getExplicitLockType(this) != LockType.NL) {
+//                    dbContext.escalate(this);
+//                    dbContext.release(this);
+//                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -1081,7 +1097,7 @@ public class Database implements AutoCloseable {
             }
             String indexName = tableName + "," + columnName;
 
-            // TODO(proj4_part3): add locking
+            lockIndexMetadata(indexName, LockType.S);
 
             BPlusTreeMetadata metadata = getIndexMetadata(tableName, columnName);
             if (metadata == null) {
@@ -1110,7 +1126,7 @@ public class Database implements AutoCloseable {
                 tableName = prefixUserTableName(tableName);
             }
 
-            // TODO(proj4_part3): add locking
+            lockTableMetadata(tableName, LockType.S);
 
             TableInfoRecord record = getTableMetadata(tableName);
             if (!record.isAllocated()) {
@@ -1142,7 +1158,6 @@ public class Database implements AutoCloseable {
 
         @Override
         protected void startCommit() {
-            // TODO(proj5): replace immediate cleanup() call with job (the commented out code)
 
             transactionContext.deleteAllTempTables();
 
@@ -1190,9 +1205,8 @@ public class Database implements AutoCloseable {
             String prefixedTableName = prefixUserTableName(tableName);
             TransactionContext.setTransaction(transactionContext);
             try {
-                // TODO(proj4_part3): add locking
 
-                lockTableMetadata(prefixedTableName, LockType.NL);
+                lockTableMetadata(prefixedTableName, LockType.X);
 
                 TableInfoRecord record = getTableMetadata(prefixedTableName);
                 if (record.isAllocated()) {
@@ -1225,9 +1239,9 @@ public class Database implements AutoCloseable {
             String prefixedTableName = prefixUserTableName(tableName);
             TransactionContext.setTransaction(transactionContext);
             try {
-                // TODO(proj4_part3): add locking
 
-                lockTableMetadata(prefixedTableName, LockType.NL);
+                lockTableMetadata(prefixedTableName, LockType.X);
+                LockUtil.ensureSufficientLockHeld(getTableContext(tableName), LockType.X);
 
                 TableInfoRecord record = getTableMetadata(prefixedTableName);
                 if (!record.isAllocated()) {
@@ -1254,7 +1268,7 @@ public class Database implements AutoCloseable {
         public void dropAllTables() {
             TransactionContext.setTransaction(transactionContext);
             try {
-                // TODO(proj4_part3): add locking
+                LockUtil.ensureSufficientLockHeld(getTableInfoContext().parentContext(), LockType.X);
 
                 List<String> tableNames = new ArrayList<>(tableLookup.keySet());
 
@@ -1276,7 +1290,6 @@ public class Database implements AutoCloseable {
             String prefixedTableName = prefixUserTableName(tableName);
             TransactionContext.setTransaction(transactionContext);
             try {
-                // TODO(proj4_part3): add locking
 
                 lockTableMetadata(prefixedTableName, LockType.NL);
 
@@ -1296,7 +1309,7 @@ public class Database implements AutoCloseable {
                 Type colType = schemaColType.get(columnIndex);
                 String indexName = tableName + "," + columnName;
 
-                lockIndexMetadata(indexName, LockType.NL);
+                lockIndexMetadata(indexName, LockType.X);
 
                 BPlusTreeMetadata metadata = getIndexMetadata(tableName, columnName);
                 if (metadata != null) {
@@ -1344,9 +1357,9 @@ public class Database implements AutoCloseable {
             String indexName = tableName + "," + columnName;
             TransactionContext.setTransaction(transactionContext);
             try {
-                // TODO(proj4_part3): add locking
 
-                lockIndexMetadata(indexName, LockType.NL);
+                lockIndexMetadata(indexName, LockType.X);
+                LockUtil.ensureSufficientLockHeld(getIndexContext(indexName), LockType.X);
 
                 BPlusTreeMetadata metadata = getIndexMetadata(tableName, columnName);
                 if (metadata == null) {
